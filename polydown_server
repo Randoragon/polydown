@@ -1,0 +1,48 @@
+#!/usr/bin/env python3
+
+import socket
+import time
+import subprocess
+import os
+
+HOME_DIR  = os.path.expanduser('~')
+CONF_DIR  = HOME_DIR + '/.config/polydown'
+CONF_FILE = CONF_DIR + '/polydown.conf'
+TEMP_DIR  = '/tmp/polydown/'
+PORT=5000
+
+def server_program():
+    host = socket.gethostname()
+    server_socket = socket.socket()
+    server_socket.bind((host, PORT))
+
+    server_socket.listen(1)
+    conn, address = server_socket.accept()
+    print("Connection from: {}".format(address))
+    while True:
+        cmd = conn.recv(1024).decode()
+        if not cmd:
+            break
+        print("Received: {}".format(cmd))
+        proc_index = len(procs) + 1
+        cmd = 'python3 -m termdown --outfile={} {}'.format(CONF_DIR + str(proc_index), cmd)
+        proc = subprocess.Popen(cmd, shell=True, stderr=subprocess.PIPE, stdout=subprocess.PIPE)
+        stderr = proc.stderr.read()
+        if len(stderr) != 0:
+            conn.send('Error: {}'.format(stderr).encode())
+            continue
+        procs.append(proc)
+        conn.send('Successfully added timer #{}'.format(len(procs)))
+    conn.close()
+
+if __name__ == '__main__':
+    # Ensure config path and file exist
+    os.makedirs(CONF_DIR, exist_ok=True)
+    open(CONF_FILE, 'a').close()
+
+    # Load timers from config file
+    timers = list(map(lambda x: x.strip(), open(CONF_FILE, 'r').readlines()))
+    procs = [None] * len(timers)
+    for i in range(len(timers)):
+        procs[i] = subprocess.Popen(timers[i], shell=True)
+    server_program()

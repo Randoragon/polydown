@@ -1,0 +1,39 @@
+#!/usr/bin/env python3
+
+import socket
+import sys
+
+PORT = 5000
+
+def send(msg):
+    host = socket.gethostname()
+    client_socket = socket.socket()
+    client_socket.connect((host, PORT))
+    client_socket.send(msg.encode())
+    data = client_socket.recv(1024).decode()
+    print("Server Response: {}".format(data))
+    client_socket.close()
+
+if __name__ == '__main__':
+    if len(sys.argv) == 1:
+        print('No arguments given. Try -h or --help.')
+    elif sys.argv[1] in ('--help', '-h'):
+        print('''USER INSTRUCTIONS
+
+The polydown server runs every parameter you input into the client
+through a termdown instance, termdown being a simple python module.
+To install termdown:
+ $ python3 -m pip install termdown
+To print termdown man page:
+ $ python3 -m termdown --help
+The only distinction is that the client doesn\'t accept no parameters,
+which in termdown would envoke stopwatch mode. To activate stopwatch
+using the client, the following aliases are supported:
+"stopwatch", "timer", "time", "count".
+
+NOTE: You are not allowed to pass the --outfile or -o parameter,
+is it is reserved for the internal functionality of the server.
+
+Thank you for using polydown!''')
+    else:
+        send(' '.join(sys.argv[1:]))
