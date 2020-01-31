@@ -9,31 +9,70 @@ HOME_DIR  = os.path.expanduser('~')
 CONF_DIR  = HOME_DIR + '/.config/polydown'
 CONF_FILE = CONF_DIR + '/polydown.conf'
 TEMP_DIR  = '/tmp/polydown/'
-PORT=5000
+PORT = 5000
 
 def server_program():
     host = socket.gethostname()
     server_socket = socket.socket()
     server_socket.bind((host, PORT))
 
-    server_socket.listen(1)
-    conn, address = server_socket.accept()
-    print("Connection from: {}".format(address))
     while True:
+        # Remove dead processes from the list
+        i = 0
+        while i < len(procs):
+            if procs[i][0].poll() is not None:
+                del procs[i]
+                i -= 1
+            i += 1
+
+        # Listen for client commands
+        server_socket.listen(1)
+        conn, address = server_socket.accept()
+        print("CONNECTION FROM: {}".format(address))
         cmd = conn.recv(1024).decode()
         if not cmd:
-            break
+            continue
         print("Received: {}".format(cmd))
-        proc_index = len(procs) + 1
-        cmd = 'python3 -m termdown --outfile={} {}'.format(CONF_DIR + str(proc_index), cmd)
-        proc = subprocess.Popen(cmd, shell=True, stderr=subprocess.PIPE, stdout=subprocess.PIPE)
-        stderr = proc.stderr.read()
+        cmd = cmd.split()
+        print('cmd={}'.format(cmd))
+
+        # Identify and execute a command
+        if cmd[0] in ('list', 'ls'):
+            if len(procs) != 0:
+                for i in range(len(procs)):
+                    conn.send('{}  {}'.format(procs[i][0].pid, procs[i][1]).encode())
+            conn.close()
+            print('DISCONNECTED')
+            continue
+        elif cmd[0] in ('cat', 'get', 'show', 'print'):
+            if int(cmd[1]) < len(procs):
+                conn.send('{}  {}'.format(procs[cmd[1]][0].pid, procs[cmd[1]][1]).encode())
+            else:
+                conn.send('Timer {} was not found. Use "ls" to view a full list of active timers.'.format(cmd[1]).encode())
+            conn.close()
+            print('DISCONNECTED')
+            continue
+        proc_index = len(procs)
+        #cmd = 'python3 -m termdown --outfile={} {}'.format(CONF_DIR + str(proc_index), cmd)
+        #cmd = ['termdown', '5m']
+        proc = subprocess.Popen(cmd, shell=False, stderr=subprocess.PIPE, stdout=subprocess.PIPE)
+
+        # Send back STDERR, if not empty
+        stdout, stderr = proc.communicate()
+        stdout = str(stdout)[2:-3]; stderr = str(stderr)[2:-3]
         if len(stderr) != 0:
             conn.send('Error: {}'.format(stderr).encode())
+            conn.close()
+            print('DISCONNECTED')
             continue
-        procs.append(proc)
-        conn.send('Successfully added timer #{}'.format(len(procs)))
-    conn.close()
+
+        # Add to the process list if everything was successful
+        procs.append((proc, ' '.join(cmd)))
+        conn.send('Successfully added timer {} with PID {}'.format(proc_index, proc.pid).encode())
+        conn.close()
+        print('DISCONNECTED')
+
+        time.sleep(0.5)
 
 if __name__ == '__main__':
     # Ensure config path and file exist
@@ -42,7 +81,5 @@ if __name__ == '__main__':
 
     # Load timers from config file
     timers = list(map(lambda x: x.strip(), open(CONF_FILE, 'r').readlines()))
-    procs = [None] * len(timers)
-    for i in range(len(timers)):
-        procs[i] = subprocess.Popen(timers[i], shell=True)
+    procs = []
     server_program()
