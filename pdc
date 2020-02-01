@@ -85,7 +85,7 @@ DESCRIPTION
         PDC is a command-line client for the Polydown server (polydown).
         It connects to the server and sends messages to control its actions.
 
-        Polydown is a great tool for setting up quick timers, reminders,
+        Polydown is a great tool for setting up quick timers, alarms,
         executing commands at the end of countdowns, setting up counters...
 
 OPTIONS
@@ -132,12 +132,12 @@ ACTIONS
 
         cmd <INDEX>..., command <INDEX>...
             For each index prints its object's command in a new line.
-            Only affects timers and reminders whose commands were set.
+            Only affects timers and alarms whose commands were set.
 
         cat <INDEX>...
             For each index prints its object's current status:
                 * timers:      remaining time
-                * reminders:   remaining time
+                * alarms:      remaining time
                 * stopwatches: elapsed time
                 * counters:    current value
 
@@ -145,7 +145,7 @@ ACTIONS
             For each index prints everything known about its object. Includes:
                 * always:      type, index, PID
                 * timers:      remaining time, command (if set)
-                * reminders:   remaining time, command (if set)
+                * alarms:      remaining time, command (if set)
                 * stopwatches: elapsed time
                 * counters:    current value
             
@@ -174,7 +174,7 @@ TIME OBJECTS AND VALUES
             pdc 2h 1h 4 4   - set to 3 hours and 8 seconds
 
 
-------- REMINDER - works like a timer, but it counts down towards
+------- ALARM - works like a timer, but it counts down towards
         a specific point in time rather than freely.
 
         Syntax:
@@ -195,7 +195,7 @@ TIME OBJECTS AND VALUES
 
             The difference between "pdc 10m" and "pdc +10m" is:
             If you shut down your computer and reboot after 5 minutes,
-            a timer will still be at 10 minutes, but a reminder will
+            a timer will still be at 10 minutes, but an alarm will
             already be at 5, because it looks at the system clock.
 
 
@@ -204,7 +204,7 @@ TIME OBJECTS AND VALUES
         Syntax:
             pdc s [START]
             If no START is given, 0 is inferred.
-            START has the same syntax as timers and reminders 3).
+            START has the same syntax as timers and alarms 3).
 
         Examples:
             pdc s       - starts from 0

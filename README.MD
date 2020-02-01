@@ -1,5 +1,5 @@
 # Polydown
 
-## Timers, Reminders, Stopwatches, Counters
+## Timers, Alarms, Stopwatches, Counters
 
 Work in progress, no scripts are fully functional yet.
