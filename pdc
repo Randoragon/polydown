@@ -2,88 +2,150 @@
 
 import socket
 import sys
-from re import sub
+import re
+from enum import Enum
 
 PORT = 5000
 
+class Cmd(Enum):
+    ADD     = 0
+    LIST    = 1
+    REMOVE  = 2
+    PID     = 3
+    INDEX   = 4
+    CAT     = 5
+    COMMAND = 6
+    STATUS  = 7
+    KILL    = 8
+
 def send(msg):
-    '''Sends msg as-is to the server'''
+    '''Sends a string as-is to the server'''
     host = socket.gethostname()
     client_socket = socket.socket()
     client_socket.connect((host, PORT))
-    client_socket.send(msg.encode())
+    client_socket.send(str(msg).encode())
     data = client_socket.recv(1024).decode()
     if len(data) != 0:
-        print(sub(r'\\n', '\n', data))
+        print(re.sub(r'\\n', '\n', data))
     client_socket.close()
 
 def convert(msg):
     '''Converts raw user input into precise information for the server'''
+
+    if msg[0] in ('ls', 'list'):
+        cmd = Cmd.LIST
+        if len(msg) > 1:
+            print(f'\'{msg[0]}\' does not take parameters, ignoring...')
+        send(cmd)
+
+    elif msg[0] in ('rm', 'remove'):
+        cmd = Cmd.REMOVE
+
+    elif msg[0] in ('pidof', 'pid'):
+        cmd = Cmd.PID
+        send(cmd)
+
+    elif msg[0] in ('index'):
+        cmd = Cmd.INDEX
+
+    elif msg[0] in ('cmd', 'command'):
+        cmd = Cmd.COMMAND
+
+    elif msg[0] in ('cat', 'get'):
+        cmd = Cmd.CAT
+
+    elif msg[0] in ('stat', 'status'):
+        cmd = Cmd.STATUS
+
+    elif cmd[0] in ('kill'):
+        cmd = Cmd.KILL
+        if len(msg) > 1:
+            print(f'\'{msg[0]}\' does not take parameters, ignoring...')
+        send(cmd)
+
+    else:
+        cmd = Cmd.ADD
+
+
     return msg
 
 if __name__ == '__main__':
     if len(sys.argv) == 1:
         send('ls')
     elif sys.argv[1] in ('--help', '-h'):
-        print('''PDC
+        print('''PDC(1)
 
 NAME
         pdc - polydown client
 
 SYNOPSIS
-        pdc [COMMAND] [VALUE]
+        pdc [OPTIONS] [ACTION] [VALUE] [-- COMMAND]
 
 DESCRIPTION
         PDC is a command-line client for the Polydown server (polydown).
-        It connects to the server and sends commands to control its actions.
+        It connects to the server and sends messages to control its actions.
 
-COMMANDS
+        Polydown is a great tool for setting up quick timers, reminders,
+        executing commands at the end of countdowns, setting up counters...
+
+OPTIONS
+        -p <PORT>, --port <PORT>
+        The port the server is listening on, default is 5000.
+
+        -h, --help
+        Print this help page.
+
+        -f <FILE>, --file <FILE>
+        Run pdc for every line in file, using each line as parameters.
+
+ACTIONS
         add <VALUE>
             The default action. You can omit "add" for the same effect.
-            Appends a time object to Polybar. Supported time objects are:
-                * timer
-                * remainder
-                * stopwatch
-                * counter
-            The added object should be immediately displayed on the bar.
+            Appends a time object to Polybar.  The added object should
+            be immediately displayed on the bar.
             RETURNS: the object index, process PID
 
-            The definitions of the time objects and the  <VALUE> syntax
-            can be found at the bottom of the help page.
-
-        rm <INDEX>, remove <INDEX>, remove #<NAME>
+        rm <INDEX>..., rm #<NAME>...
             Destroys a time object and removes it from the bar.
-            This is analogous to killing the process manually with its PID,
-            except it requires the object index (PID-killing is allowed).
+            Works with any number of space-separated indices/names.
 
-            Passing an asterisk * instead of an index clears all objects.
+            Passing an asterisk * instead of an index destroys all objects.
 
-            NAME only applies to counters, read about counters further down.
+            NAMES only apply to counter objects.
 
         ls, list
             Lists all running time objects in the following format:
-                INDEX   PID         COMMAND
+                INDEX   PID         ACTION          COMMAND
             e.g.
-                0       1422293     3m
-                1       1422295     12:33
-                3       1512210     Jan 14 14:35
+                0       1422293     3m              echo 'times up!'
+                1       1422295     12:33           
+                3       1512210     Jan 14 14:35    systemctl poweroff
 
             If no time objects are present, nothing is returned.
             This is the default action, you can write just "pdc" to list.
 
-        pidof <INDEX>, pid <INDEX>
-            Prints a time object's PID.
+        pidof <INDEX>..., pid <INDEX>...
+            For each passed index prints its object's PID in a new line.
 
-        index <PID>
-            Prints a time object's index.
+        index <PID>...
+            For each passed PID prints its object's index in a new line.
 
-        cmd <INDEX>, command <INDEX>
-            Prints a time object's command.
+        cmd <INDEX>..., command <INDEX>...
+            For each index prints its object's command in a new line.
+            Only affects timers and reminders whose commands were set.
 
-        stat <INDEX>, status <INDEX>
-            Prints a time object's current status. This means respectively:
+        cat <INDEX>...
+            For each index prints its object's current status:
                 * timers:      remaining time
-                * remainders:  remaining time
+                * reminders:   remaining time
+                * stopwatches: elapsed time
+                * counters:    current value
+
+        stat <INDEX>..., status <INDEX>...
+            For each index prints everything known about its object. Includes:
+                * always:      type, index, PID
+                * timers:      remaining time, command (if set)
+                * reminders:   remaining time, command (if set)
                 * stopwatches: elapsed time
                 * counters:    current value
             
@@ -99,9 +161,11 @@ TIME OBJECTS AND VALUES
 ------- TIMER - counts down for a specified amount of time.
 
         Syntax:
-            pdc [parameter1] [parameter2] ...
+            pdc [parameter1] [parameter2] ... [-- COMMAND]
             Where all parameters must be numbers followed by a time unit.
             The timer will be set to the sum of all parameters.
+            Optionally, you can include a COMMAND string which will be
+            executed once the timer hits 0.
 
         Examples:
             pdc 5           - set to 5 seconds (default unit)
@@ -110,16 +174,16 @@ TIME OBJECTS AND VALUES
             pdc 2h 1h 4 4   - set to 3 hours and 8 seconds
 
 
-------- REMAINDER - works like a timer, but it counts down towards
+------- REMINDER - works like a timer, but it counts down towards
         a specific point in time rather than freely.
 
         Syntax:
-        1)  pdc [dd.mm.yyyy] [HH:MM:SS] [PM/AM]
-        2)  pdc [mm/dd/yyyy] [HH:MM:SS] [PM/AM]
+        1)  pdc [dd.mm.yyyy] [HH:MM:SS] [PM/AM] [-- COMMAND]
+        2)  pdc [mm/dd/yyyy] [HH:MM:SS] [PM/AM] [-- COMMAND]
             Years and seconds may also be omitted.
             If [PM/AM] is omitted, 24 hour time is inferred.
             In 12 hour time minutes are optional.
-        3)  pdc +[parameter1] [parametr2] ...
+        3)  pdc +[parameter1] [parametr2] ... [-- COMMAND]
             Same rules as timer, but with a single preceding + sign.
 
         Examples:
@@ -131,16 +195,16 @@ TIME OBJECTS AND VALUES
 
             The difference between "pdc 10m" and "pdc +10m" is:
             If you shut down your computer and reboot after 5 minutes,
-            a timer will still be at 10 minutes, but a remainder will
+            a timer will still be at 10 minutes, but a reminder will
             already be at 5, because it looks at the system clock.
 
 
-------- STOPWATCH - counts time like a stopwatch
+------- STOPWATCH - measures time like a stopwatch
 
         Syntax:
             pdc s [START]
             If no START is given, 0 is inferred.
-            START has the same syntax as timers and remainders 3).
+            START has the same syntax as timers and reminders 3).
 
         Examples:
             pdc s       - starts from 0
@@ -172,4 +236,4 @@ Source code: https://github.com/Randoragon/polydown
 
 © 2020 Randoragon. Distributed under the MIT License''')
     else:
-        send(convert(' '.join(sys.argv[1:])))
+        send(convert(sys.argv[1:]))
