@@ -194,8 +194,8 @@ TIME OBJECTS AND VALUES
             pdc +10m                 - set to 10 minutes from now
 
             The difference between "pdc 10m" and "pdc +10m" is:
-            If you shut down your computer and reboot after 5 minutes,
-            a timer will still be at 10 minutes, but an alarm will
+            If you shut down your computer and rebooted after 5 minutes,
+            a timer would still be at 10 minutes, but an alarm would
             already be at 5, because it looks at the system clock.
 
 
