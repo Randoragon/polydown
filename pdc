@@ -7,6 +7,7 @@ from re import sub
 PORT = 5000
 
 def send(msg):
+    '''Sends msg as-is to the server'''
     host = socket.gethostname()
     client_socket = socket.socket()
     client_socket.connect((host, PORT))
@@ -16,9 +17,13 @@ def send(msg):
         print(sub(r'\\n', '\n', data))
     client_socket.close()
 
+def convert(msg):
+    '''Converts raw user input into precise information for the server'''
+    return msg
+
 if __name__ == '__main__':
     if len(sys.argv) == 1:
-        print('No arguments given. Try -h or --help.')
+        send('ls')
     elif sys.argv[1] in ('--help', '-h'):
         print('''PDC
 
@@ -64,6 +69,7 @@ COMMANDS
                 3       1512210     Jan 14 14:35
 
             If no time objects are present, nothing is returned.
+            This is the default action, you can write just "pdc" to list.
 
         pidof <INDEX>, pid <INDEX>
             Prints a time object's PID.
@@ -166,4 +172,4 @@ Source code: https://github.com/Randoragon/polydown
 
 © 2020 Randoragon. Distributed under the MIT License''')
     else:
-        send(' '.join(sys.argv[1:]))
+        send(convert(' '.join(sys.argv[1:])))
