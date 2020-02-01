@@ -20,22 +20,150 @@ if __name__ == '__main__':
     if len(sys.argv) == 1:
         print('No arguments given. Try -h or --help.')
     elif sys.argv[1] in ('--help', '-h'):
-        print('''USER INSTRUCTIONS
+        print('''PDC
 
-The polydown server runs every parameter you input into the client
-through a termdown instance, termdown being a simple python module.
-To install termdown:
- $ python3 -m pip install termdown
-To print termdown man page:
- $ python3 -m termdown --help
-The only distinction is that the client doesn\'t accept no parameters,
-which in termdown would envoke stopwatch mode. To activate stopwatch
-using the client, the following aliases are supported:
-"stopwatch", "timer", "time", "count".
+NAME
+        pdc - polydown client
 
-NOTE: You are not allowed to pass the --outfile or -o parameter,
-is it is reserved for the internal functionality of the server.
+SYNOPSIS
+        pdc [COMMAND] [VALUE]
 
-Thank you for using polydown!''')
+DESCRIPTION
+        PDC is a command-line client for the Polydown server (polydown).
+        It connects to the server and sends commands to control its actions.
+
+COMMANDS
+        add <VALUE>
+            The default action. You can omit "add" for the same effect.
+            Appends a time object to Polybar. Supported time objects are:
+                * timer
+                * remainder
+                * stopwatch
+                * counter
+            The added object should be immediately displayed on the bar.
+            RETURNS: the object index, process PID
+
+            The definitions of the time objects and the  <VALUE> syntax
+            can be found at the bottom of the help page.
+
+        rm <INDEX>, remove <INDEX>, remove #<NAME>
+            Destroys a time object and removes it from the bar.
+            This is analogous to killing the process manually with its PID,
+            except it requires the object index (PID-killing is allowed).
+
+            Passing an asterisk * instead of an index clears all objects.
+
+            NAME only applies to counters, read about counters further down.
+
+        ls, list
+            Lists all running time objects in the following format:
+                INDEX   PID         COMMAND
+            e.g.
+                0       1422293     3m
+                1       1422295     12:33
+                3       1512210     Jan 14 14:35
+
+            If no time objects are present, nothing is returned.
+
+        pidof <INDEX>, pid <INDEX>
+            Prints a time object's PID.
+
+        index <PID>
+            Prints a time object's index.
+
+        cmd <INDEX>, command <INDEX>
+            Prints a time object's command.
+
+        stat <INDEX>, status <INDEX>
+            Prints a time object's current status. This means respectively:
+                * timers:      remaining time
+                * remainders:  remaining time
+                * stopwatches: elapsed time
+                * counters:    current value
+            
+        kill
+            Kills the Polydown server. This is exactly the same as calling
+            "polydown -k" or "polydown --kill".
+            All running time objects will be safely preserved and resumed
+            upon restarting the server again.
+
+
+TIME OBJECTS AND VALUES
+
+------- TIMER - counts down for a specified amount of time.
+
+        Syntax:
+            pdc [parameter1] [parameter2] ...
+            Where all parameters must be numbers followed by a time unit.
+            The timer will be set to the sum of all parameters.
+
+        Examples:
+            pdc 5           - set to 5 seconds (default unit)
+            pdc 1h 2m 3s    - set to 1 hour, 2 minutes and 3 seconds
+            pdc 2m 1d 5s    - set to 1 day, 2 minutes and 5 seconds
+            pdc 2h 1h 4 4   - set to 3 hours and 8 seconds
+
+
+------- REMAINDER - works like a timer, but it counts down towards
+        a specific point in time rather than freely.
+
+        Syntax:
+        1)  pdc [dd.mm.yyyy] [HH:MM:SS] [PM/AM]
+        2)  pdc [mm/dd/yyyy] [HH:MM:SS] [PM/AM]
+            Years and seconds may also be omitted.
+            If [PM/AM] is omitted, 24 hour time is inferred.
+            In 12 hour time minutes are optional.
+        3)  pdc +[parameter1] [parametr2] ...
+            Same rules as timer, but with a single preceding + sign.
+
+        Examples:
+            pdc 5pm                  - set to 5pm, current day
+            pdc 17:00                - same time as above
+            pdc 25.06 13:15          - set to Jun 25th, 13:15
+            pdc 23/12/2055 7:30:15am - set to Dec 23rd 2055, 7:30:15AM
+            pdc +10m                 - set to 10 minutes from now
+
+            The difference between "pdc 10m" and "pdc +10m" is:
+            If you shut down your computer and reboot after 5 minutes,
+            a timer will still be at 10 minutes, but a remainder will
+            already be at 5, because it looks at the system clock.
+
+
+------- STOPWATCH - counts time like a stopwatch
+
+        Syntax:
+            pdc s [START]
+            If no START is given, 0 is inferred.
+            START has the same syntax as timers and remainders 3).
+
+        Examples:
+            pdc s       - starts from 0
+            pdc s 100   - starts from 100 seconds
+            pdc s 1h 3m - starts from 1 hour and 3 minutes
+
+
+------- COUNTER - stores a number and lets you change it at will
+
+        Syntax:
+            pdc #<NAME> [OPERATOR][VALUE]
+            NAME must be alphanumeric (a-z, A-Z, 0-9)
+            OPERATOR must be one of: +, -, *, /, //, ^, %
+            VALUE must be a real number (natural for % !!!).
+
+        Examples:
+            pdc #L           - if non-existent, create #L and set to 0
+            pdc #did +5      - add 5 to #did
+            pdc #you /0.5    - divide #you by -0.5 (equivalent to *2)
+            pdc #know ^-3.5  - raise #know to the power -3.5
+            pdc #shinigami 0 - exists or not, set #shinigami to 0
+            pdc #love //3    - divide #love by 3 (integer division)
+            pdc #apples %17  - set #apples to (#apples mod 17)
+
+
+Thank you for using polydown!
+
+Source code: https://github.com/Randoragon/polydown
+
+© 2020 Randoragon. Distributed under the MIT License''')
     else:
         send(' '.join(sys.argv[1:]))
