@@ -3,75 +3,122 @@
 import socket
 import sys
 import re
-from enum import Enum
 
 PORT = 5000
 
-class Cmd(Enum):
-    ADD     = 0
-    LIST    = 1
-    REMOVE  = 2
-    PID     = 3
-    INDEX   = 4
-    CAT     = 5
-    COMMAND = 6
-    STATUS  = 7
-    KILL    = 8
+ACTION = {
+        'add'   : 0,
+        'ls'    : 1,
+        'list'  : 1,
+        'rm'    : 2,
+        'pidof' : 3,
+        'index' : 4,
+        'cat'   : 5,
+        'cmd'   : 6,
+        'stat'  : 7,
+        'kill'  : 8
+}
+
+OBJECT = {
+        'timer'     : 0,
+        'alarm'     : 1,
+        'stopwatch' : 2,
+        'counter'   : 3
+}
 
 def send(msg):
     '''Sends a string as-is to the server'''
-    host = socket.gethostname()
-    client_socket = socket.socket()
-    client_socket.connect((host, PORT))
-    client_socket.send(str(msg).encode())
-    data = client_socket.recv(1024).decode()
-    if len(data) != 0:
-        print(re.sub(r'\\n', '\n', data))
-    client_socket.close()
+    if msg is None:
+        return False
+    try:
+        print(f'Sending: "{msg}"')
+        host = socket.gethostname()
+        client_socket = socket.socket()
+        client_socket.connect((host, PORT))
+        client_socket.send(str(msg).encode())
+        data = client_socket.recv(1024).decode()
+        if len(data) != 0:
+            print(re.sub(r'\\n', '\n', data))
+        client_socket.close()
+    except ConnectionRefusedError:
+        print('Error: Connection to server failed')
+    except Exception as e:
+        print(f'Error: Unprecedented exception caught:\n  {type(e).__name__}')
+    return True
 
 def convert(msg):
     '''Converts raw user input into precise information for the server'''
 
-    if msg[0] in ('ls', 'list'):
-        cmd = Cmd.LIST
+    # Matches natural numbers and counter names
+    REGEX = r'^([0-9]+)|(@[\w]+)$'  
+
+    # Aliases for cleaner code 
+    A = ACTION 
+    ERR_PID_NAME   = '\'{}\' is neither a PID nor a counter name, aborting...'
+    ERR_INDEX_NAME = '\'{}\' is neither an index nor a counter name, aborting...'
+
+    # If no action specified, infer add
+    if msg[0] not in A:
+        msg.insert(0, 'add')
+
+    # Process specific actions
+    action = A[msg[0]]
+    if action in (A['ls'], A['kill']):
         if len(msg) > 1:
             print(f'\'{msg[0]}\' does not take parameters, ignoring...')
-        send(cmd)
+        ret = action
+    elif action in (A['rm'], A['pidof'], A['index'], A['cmd'], A['cat'], A['stat']):
+        for i in msg[1:]:
+            if not re.match(REGEX, i):
+                print(ERR_INDEX_NAME.format(i) if action != A['index'] else ERR_PID_NAME.format(i))
+                ret = None
+        ret = ' '.join((str(action), *msg[1:]))
+    elif action == A['add']:
 
-    elif msg[0] in ('rm', 'remove'):
-        cmd = Cmd.REMOVE
+        ERR_MSG = 'Failed to parse parameters, aborting...')
+        string = ' '.join(msg)
 
-    elif msg[0] in ('pidof', 'pid'):
-        cmd = Cmd.PID
-        send(cmd)
+        # Timer
+        if all(is_time_chunk(i) for i in msg):
+            obj = OBJECT['timer']
+            arg = sum(list(time_chunk_to_sec(i) for i in msg))
 
-    elif msg[0] in ('index'):
-        cmd = Cmd.INDEX
+        # Alarm
+        elif string[0] == '+':
+            obj = OBJECT['alarm']
+            # Trim the + sign to leave out only time chunks
+            if msg[0] == '+':
+                del msg[0]
+            else:
+                msg[0] = msg[0][1:]
+            if any(not is_time_chunk(i) for i in msg):
+                print('Error: Invalid alarm parameters')
+            arg = sum(list(time_chunk_to_sec(i) for i in msg[1:]))
+        elif is_datetime(string):
+            obj = OBJECT['alarm']
+            #...
 
-    elif msg[0] in ('cmd', 'command'):
-        cmd = Cmd.COMMAND
+    return ret
 
-    elif msg[0] in ('cat', 'get'):
-        cmd = Cmd.CAT
+def is_time_chunk(s):
+    return re.match(r'^[\d]+[smhd]?$') is not None
 
-    elif msg[0] in ('stat', 'status'):
-        cmd = Cmd.STATUS
-
-    elif cmd[0] in ('kill'):
-        cmd = Cmd.KILL
-        if len(msg) > 1:
-            print(f'\'{msg[0]}\' does not take parameters, ignoring...')
-        send(cmd)
-
-    else:
-        cmd = Cmd.ADD
-
-
-    return msg
+def time_chunk_to_sec(s):
+    if s[-1] not in ('s', 'm', 'h', 'd') and '.' not in s:
+        return float(s)
+    if s[-1] = 's':
+        return float(s[:-1])
+    if s[-1] = 'm':
+        return 60 * float(s[:-1])
+    if s[-1] = 'h':
+        return 3600 * float(s[:-1])
+    if s[-1] = 'd':
+        return 86400 * float(s[:-1])
+    raise ValueError('\'s\' is not a time chunk!)
 
 if __name__ == '__main__':
     if len(sys.argv) == 1:
-        send('ls')
+        send(Action.LIST)
     elif sys.argv[1] in ('--help', '-h'):
         print('''PDC(1)
 
@@ -95,23 +142,38 @@ OPTIONS
         -h, --help
         Print this help page.
 
-        -f <FILE>, --file <FILE>
+        -i <FILE>, --input <FILE>
         Run pdc for every line in file, using each line as parameters.
+
+        -c <BEGIN:END> <FG:BG>
+        When object's value within the given range, set its foreground
+        and background color to a hex value. This option can be passed
+        multiple times to specify different ranges. Also, you can omit
+        either BEGIN, END or both to specify a limitless range.
+        You can omit FG or BG to reset that color to polybar default.
+        Don't forget the colons, even if omitting some values.
+
+        -f <INDEX>... [BEGIN:END], --format <INDEX>... [BEGIN:END]
+        Print a polybar-formatted string including all objects whose
+        indices were listed. Formatting includes BG and FG colors for
+        each object that was created with the -c option.
+        You may use a colon range to specify a range of indices
+        (same rules as in -c, e.g. use a single colon to list all).
+        If this option is used, no ACTION can follow, every subsequent
+        parameter is interpreted as an object index.
+        This is the intended option to use in a Polybar config
+        as custom/script type.
 
 ACTIONS
         add <VALUE>
             The default action. You can omit "add" for the same effect.
-            Appends a time object to Polybar.  The added object should
-            be immediately displayed on the bar.
-            RETURNS: the object index, process PID
+            Creates a new time object and returns its index and PID.
 
-        rm <INDEX>..., rm #<NAME>...
+        rm <INDEX>..., rm @<NAME>...
             Destroys a time object and removes it from the bar.
             Works with any number of space-separated indices/names.
-
             Passing an asterisk * instead of an index destroys all objects.
-
-            NAMES only apply to counter objects.
+            For counters, @NAME notation may be used instead of indices.
 
         ls, list
             Lists all running time objects in the following format:
@@ -124,30 +186,37 @@ ACTIONS
             If no time objects are present, nothing is returned.
             This is the default action, you can write just "pdc" to list.
 
-        pidof <INDEX>..., pid <INDEX>...
+        pidof <INDEX>..., pidof @<NAME>...
             For each passed index prints its object's PID in a new line.
+            For counters, @NAME notation may be used instead of indices.
 
-        index <PID>...
+        index <PID>..., index @<NAME>
             For each passed PID prints its object's index in a new line.
+            For counters, @NAME notation may be used instead of indices.
 
-        cmd <INDEX>..., command <INDEX>...
+        cmd <INDEX>..., cmd @<NAME>...
             For each index prints its object's command in a new line.
             Only affects timers and alarms whose commands were set.
+            For counters, @NAME notation may be used instead of indices.
 
-        cat <INDEX>...
+        cat <INDEX>..., cat @<NAME>
             For each index prints its object's current status:
                 * timers:      remaining time
                 * alarms:      remaining time
                 * stopwatches: elapsed time
                 * counters:    current value
 
-        stat <INDEX>..., status <INDEX>...
+            For counters, @NAME notation may be used instead of indices.
+
+        stat <INDEX>..., stat @<NAME>...
             For each index prints everything known about its object. Includes:
                 * always:      type, index, PID
                 * timers:      remaining time, command (if set)
                 * alarms:      remaining time, command (if set)
                 * stopwatches: elapsed time
-                * counters:    current value
+                * counters:    name, current value
+
+            For counters, @NAME notation may be used instead of indices.
             
         kill
             Kills the Polydown server. This is exactly the same as calling
@@ -173,6 +242,9 @@ TIME OBJECTS AND VALUES
             pdc 2m 1d 5s    - set to 1 day, 2 minutes and 5 seconds
             pdc 2h 1h 4 4   - set to 3 hours and 8 seconds
 
+        The IMPORTANT NOTES section covers a few distinct cases which
+        may be important.
+
 
 ------- ALARM - works like a timer, but it counts down towards
         a specific point in time rather than freely.
@@ -193,11 +265,8 @@ TIME OBJECTS AND VALUES
             pdc 23/12/2055 7:30:15am - set to Dec 23rd 2055, 7:30:15AM
             pdc +10m                 - set to 10 minutes from now
 
-            The difference between "pdc 10m" and "pdc +10m" is:
-            If you shut down your computer and rebooted after 5 minutes,
-            a timer would still be at 10 minutes, but an alarm would
-            already be at 5, because it looks at the system clock.
-
+        The IMPORTANT NOTES section covers a few distinct cases which
+        may be important.
 
 ------- STOPWATCH - measures time like a stopwatch
 
@@ -215,25 +284,56 @@ TIME OBJECTS AND VALUES
 ------- COUNTER - stores a number and lets you change it at will
 
         Syntax:
-            pdc #<NAME> [OPERATOR][VALUE]
-            NAME must be alphanumeric (a-z, A-Z, 0-9)
+            pdc @<NAME> [OPERATOR] [VALUE]
+            NAME must be alphanumeric (a-z, A-Z, 0-9, _)
             OPERATOR must be one of: +, -, *, /, //, ^, %
             VALUE must be a real number (natural for % !!!).
+            White space between OPERATOR and VALUE is optional.
 
         Examples:
-            pdc #L           - if non-existent, create #L and set to 0
-            pdc #did +5      - add 5 to #did
-            pdc #you /0.5    - divide #you by -0.5 (equivalent to *2)
-            pdc #know ^-3.5  - raise #know to the power -3.5
-            pdc #shinigami 0 - exists or not, set #shinigami to 0
-            pdc #love //3    - divide #love by 3 (integer division)
-            pdc #apples %17  - set #apples to (#apples mod 17)
+            pdc @L           - if not set, create @L and set to 0
+            pdc @did +5      - add 5 to @did
+            pdc @you /0.5    - divide @you by -0.5 (equivalent to *2)
+            pdc @know ^-3.5  - raise @know to the power -3.5
+            pdc @shinigami 3 - exists or not, set @shinigami to 3
+            pdc @love // 3   - divide @love by 3 (integer division)
+            pdc @apples %17  - set @apples to (@apples mod 17)
+
+
+IMPORTANT NOTES
+        1) Timer and Alarm - What\'s the difference?
+            Consider the following example:
+            pdc 10m
+            pdc +10m
+            After running the above two lines,
+            if you shut down your computer and rebooted after 5 minutes,
+            a timer would still be at 10 minutes, but an alarm would
+            already be at 5, because it looks at the system clock.
+        
+        2) Datetime vs Time Amounts
+            Let these examples be a disambiguation of certain behavior:
+            pdc 5     - add a timer and set to 5 seconds
+            pdc 4.5   - add an alarm for May the 4th
+            pdc 4.5s  - add a timer and set to 4.5 seconds
+
+            As you can see, the "s" suffix for timers is optional when
+            dealing with integers, but is required for fractions to
+            differentiate between dates and time amounts.
+
+        3) Midnights, starts and ends of days
+            All these datetimes denote the start of the 8th of March:
+            pdc 8.3
+            pdc 8.3 00:00
+            pdc 8.3 0:0
+            pdc 8.3 12:00am
+            pdc 8.3 12am
+            pdc 7.3 24:00
 
 
 Thank you for using polydown!
 
 Source code: https://github.com/Randoragon/polydown
 
-© 2020 Randoragon. Distributed under the MIT License''')
+Copyright (C) 2020 Randoragon. Distributed under the MIT License.''')
     else:
         send(convert(sys.argv[1:]))
