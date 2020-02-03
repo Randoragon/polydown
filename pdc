@@ -3,6 +3,7 @@
 import socket
 import sys
 import re
+import datetime
 
 PORT = 5000
 
@@ -75,7 +76,7 @@ def convert(msg):
         ret = ' '.join((str(action), *msg[1:]))
     elif action == A['add']:
 
-        ERR_MSG = 'Failed to parse parameters, aborting...')
+        ERR_MSG = 'Failed to parse parameters, aborting...'
         string = ' '.join(msg)
 
         # Timer
@@ -96,29 +97,33 @@ def convert(msg):
             arg = sum(list(time_chunk_to_sec(i) for i in msg[1:]))
         elif is_datetime(string):
             obj = OBJECT['alarm']
-            #...
 
     return ret
 
 def is_time_chunk(s):
-    return re.match(r'^[\d]+[smhd]?$') is not None
+    '''A "time chunk" is a string in this format: 5s, 3d, 0.3s...'''
+    return re.match(r'^[\d]+((\.[\d]+[smhd])|([smhd]?))$', s) is not None
 
 def time_chunk_to_sec(s):
     if s[-1] not in ('s', 'm', 'h', 'd') and '.' not in s:
         return float(s)
-    if s[-1] = 's':
+    if s[-1] == 's':
         return float(s[:-1])
-    if s[-1] = 'm':
+    if s[-1] == 'm':
         return 60 * float(s[:-1])
-    if s[-1] = 'h':
+    if s[-1] == 'h':
         return 3600 * float(s[:-1])
-    if s[-1] = 'd':
+    if s[-1] == 'd':
         return 86400 * float(s[:-1])
-    raise ValueError('\'s\' is not a time chunk!)
+    raise ValueError(f'\'{s}\' is not a time chunk!')
+
+def extract_date(s):
+    '''Converts dd.mm.yyyy or mm/dd/yyyy into a (d, m, y) tuple'''
+    
 
 if __name__ == '__main__':
     if len(sys.argv) == 1:
-        send(Action.LIST)
+        send(ACTION['list'])
     elif sys.argv[1] in ('--help', '-h'):
         print('''PDC(1)
 
@@ -165,74 +170,70 @@ OPTIONS
         as custom/script type.
 
 ACTIONS
-        add <VALUE>
-            The default action. You can omit "add" for the same effect.
+        add [@LABEL] <EXPRESSION>
+            The default action (you can omit add for the same effect).
             Creates a new time object and returns its index and PID.
+            @LABEL is an optional alphanumeric string (a-z A-Z 0-9 _).
+            When using the --format option, the label text will be put
+            next to an object's value. Labels are also interchangeable
+            with object indices in most commands, hence the "@" prefix
+            for easy distinction between the two. Multiple objects may
+            have the same label, in which case a command affects every
+            object in possession of that label.
+            EXPRESSION is a list of parameters defining a time object
+            to be created/changed. See "TIME OBJECTS SYNTAX" section.
 
-        rm <INDEX>..., rm @<NAME>...
-            Destroys a time object and removes it from the bar.
-            Works with any number of space-separated indices/names.
-            Passing an asterisk * instead of an index destroys all objects.
-            For counters, @NAME notation may be used instead of indices.
+        rm [INDEX]... [@LABEL]...
+            Permanently removes an existing time object. Works with
+            any number of space-separated indices/labels. To destroy
+            all objects at once, you may use a single asterisk (*).
 
         ls, list
-            Lists all running time objects in the following format:
-                INDEX   PID         ACTION          COMMAND
-            e.g.
-                0       1422293     3m              echo 'times up!'
-                1       1422295     12:33           
-                3       1512210     Jan 14 14:35    systemctl poweroff
+            Lists all existing time objects with basic information.
+            Calling "pdc" with no arguments defaults to this action.
 
-            If no time objects are present, nothing is returned.
-            This is the default action, you can write just "pdc" to list.
+        pidof [INDEX]... [@LABEL]...
+            Prints PIDs of all objects matching the indices/labels.
 
-        pidof <INDEX>..., pidof @<NAME>...
-            For each passed index prints its object's PID in a new line.
-            For counters, @NAME notation may be used instead of indices.
+        index [PID]... [@LABEL]...
+            Prints indices of all objects matching the PIDs/labels.
 
-        index <PID>..., index @<NAME>
-            For each passed PID prints its object's index in a new line.
-            For counters, @NAME notation may be used instead of indices.
+        cmd [INDEX]... [@LABEL]...
+            Prints commands of all objects matching the indices/labels.
+            Objects without commands are ignored in the output.
 
-        cmd <INDEX>..., cmd @<NAME>...
-            For each index prints its object's command in a new line.
-            Only affects timers and alarms whose commands were set.
-            For counters, @NAME notation may be used instead of indices.
-
-        cat <INDEX>..., cat @<NAME>
-            For each index prints its object's current status:
+        cat [INDEX]... [@LABEL]...
+            Prints values of all objects matching the indices/labels.
+            The output for different time object types will be:
                 * timers:      remaining time
-                * alarms:      remaining time
+                * alarms:      alarm datetime
                 * stopwatches: elapsed time
                 * counters:    current value
 
-            For counters, @NAME notation may be used instead of indices.
-
-        stat <INDEX>..., stat @<NAME>...
-            For each index prints everything known about its object. Includes:
-                * always:      type, index, PID
-                * timers:      remaining time, command (if set)
-                * alarms:      remaining time, command (if set)
-                * stopwatches: elapsed time
-                * counters:    name, current value
-
-            For counters, @NAME notation may be used instead of indices.
+        stat [INDEX]... [@LABEL]...
+            Prints every known information about all objects matching
+            the indices/labels. The information respectively includes:
+                * always:      type, index, PID, label
+                * timers:      starting and remaining time, command
+                * alarms:      alarm datetime, remaining time, command
+                * stopwatches: starting and elapsed time
+                * counters:    stored value
             
         kill
             Kills the Polydown server. This is exactly the same as calling
-            "polydown -k" or "polydown --kill".
-            All running time objects will be safely preserved and resumed
-            upon restarting the server again.
+            "polydown -k" or "polydown --kill". All existing time objects
+            will be saved and readded upon restarting the server.
 
 
-TIME OBJECTS AND VALUES
+TIME OBJECTS SYNTAX
 
-------- TIMER - counts down for a specified amount of time.
+------- TIMER - counts down a specified amount of time.
 
         Syntax:
-            pdc [parameter1] [parameter2] ... [-- COMMAND]
-            Where all parameters must be numbers followed by a time unit.
-            The timer will be set to the sum of all parameters.
+            pdc [CHUNK]... [-- COMMAND]
+            A time "chunk" is a real number followed by a time unit.
+            Available units are: d, h, m, s (day, hour, minute, second).
+            The timer will be set to the sum of all time chunks.
             Optionally, you can include a COMMAND string which will be
             executed once the timer hits 0.
 
@@ -240,64 +241,65 @@ TIME OBJECTS AND VALUES
             pdc 5           - set to 5 seconds (default unit)
             pdc 1h 2m 3s    - set to 1 hour, 2 minutes and 3 seconds
             pdc 2m 1d 5s    - set to 1 day, 2 minutes and 5 seconds
-            pdc 2h 1h 4 4   - set to 3 hours and 8 seconds
+            pdc 2.5h 4 4    - set to 2 hours, 30 minutes and 8 seconds
 
-        The IMPORTANT NOTES section covers a few distinct cases which
-        may be important.
-
-
-------- ALARM - works like a timer, but it counts down towards
-        a specific point in time rather than freely.
+------- ALARM - calculates time difference between some point in time
+        and the present.
 
         Syntax:
-        1)  pdc [dd.mm.yyyy] [HH:MM:SS] [PM/AM] [-- COMMAND]
-        2)  pdc [mm/dd/yyyy] [HH:MM:SS] [PM/AM] [-- COMMAND]
-            Years and seconds may also be omitted.
-            If [PM/AM] is omitted, 24 hour time is inferred.
-            In 12 hour time minutes are optional.
-        3)  pdc +[parameter1] [parametr2] ... [-- COMMAND]
-            Same rules as timer, but with a single preceding + sign.
+         1) pdc [dd.mm.yyyy] [HH:MM:SS] [pm/am] [-- COMMAND]
+            pdc [mm/dd/yyyy] [HH:MM:SS] [pm/am] [-- COMMAND]
+            pdc [yyyy-mm-dd] [HH:MM:SS] [pm/am] [-- COMMAND]
+            You may omit many parameters as long as it's unambiguous.
+            If no pm/am specification, 24-hour time is inferred.
+
+         2) pdc a [CHUNK]... [-- COMMAND]
+            Same principle as with timers, but note the "a" letter.
+            Think of it as "set an alarm THIS far into the future".
+            Unlike a timer, the time will be rounded to full seconds.
+
+            Optionally, you can include a COMMAND string which will be
+            executed once the alarm hits 0. The command will be ignored
+            if the specified time goes by while the server is down.
 
         Examples:
             pdc 5pm                  - set to 5pm, current day
-            pdc 17:00                - same time as above
+            pdc 17:00                - same as above
             pdc 25.06 13:15          - set to Jun 25th, 13:15
-            pdc 23/12/2055 7:30:15am - set to Dec 23rd 2055, 7:30:15AM
-            pdc +10m                 - set to 10 minutes from now
+            pdc 12/23/2055 7:30:15am - set to Dec 23rd 2055, 7:30:15am
+            pdc 1.2                  - set to the closest Feb 1st
+            pdc 5/3 8                - set to 8am on May 3rd 
+            pdc a 15m                - set to 15 minutes from now
 
-        The IMPORTANT NOTES section covers a few distinct cases which
-        may be important.
-
-------- STOPWATCH - measures time like a stopwatch
+------- STOPWATCH - measures time like a stopwatch (in miliseconds)
 
         Syntax:
-            pdc s [START]
-            If no START is given, 0 is inferred.
-            START has the same syntax as timers and alarms 3).
+            pdc s [CHUNK]...
+            The syntax for CHUNK works exactly the same as for timers.
+            The sum of all chunks will be used as the initial state.
 
         Examples:
-            pdc s       - starts from 0
+            pdc s       - starts from 0 (default)
             pdc s 100   - starts from 100 seconds
             pdc s 1h 3m - starts from 1 hour and 3 minutes
 
-
-------- COUNTER - stores a number and lets you change it at will
+------- COUNTER - stores a number and lets you transform it at will
 
         Syntax:
-            pdc @<NAME> [OPERATOR] [VALUE]
-            NAME must be alphanumeric (a-z, A-Z, 0-9, _)
+            pdc c <TARGET> [OPERATOR] [VALUE]
+            TARGET must be either INDEX or @LABEL (note the prefix).
             OPERATOR must be one of: +, -, *, /, //, ^, %
-            VALUE must be a real number (natural for % !!!).
-            White space between OPERATOR and VALUE is optional.
+            VALUE must be a real number, display precision is 0.001.
+
+            When specifying TARGET by index, if the index does not
+            belong to a counter object, you will receive a warning.
 
         Examples:
-            pdc @L           - if not set, create @L and set to 0
-            pdc @did +5      - add 5 to @did
-            pdc @you /0.5    - divide @you by -0.5 (equivalent to *2)
-            pdc @know ^-3.5  - raise @know to the power -3.5
-            pdc @shinigami 3 - exists or not, set @shinigami to 3
-            pdc @love // 3   - divide @love by 3 (integer division)
-            pdc @apples %17  - set @apples to (@apples mod 17)
+            pdc c 0         - create a new counter and set to 0
+            pdc c 2 +1      - add 1 to the counter with index 2
+            pdc c 4 ^-0.12  - raise index 4 to the -0.12th power
+            pdc c 1 %4      - set index 1 to its value mod 4
+            pdc c @abc 0    - set counters with "abc" label to 0
 
 
 IMPORTANT NOTES
@@ -305,10 +307,10 @@ IMPORTANT NOTES
             Consider the following example:
             pdc 10m
             pdc +10m
-            After running the above two lines,
-            if you shut down your computer and rebooted after 5 minutes,
-            a timer would still be at 10 minutes, but an alarm would
-            already be at 5, because it looks at the system clock.
+            After running the above two lines, if you shut down your
+            computer and rebooted after 5 minutes, the timer would
+            still be at 10 minutes, but an alarm would already be at 5,
+            because it remembers a point in time rather than time left.
         
         2) Datetime vs Time Amounts
             Let these examples be a disambiguation of certain behavior:
@@ -318,7 +320,8 @@ IMPORTANT NOTES
 
             As you can see, the "s" suffix for timers is optional when
             dealing with integers, but is required for fractions to
-            differentiate between dates and time amounts.
+            differentiate between dates and time amounts. 
+
 
         3) Midnights, starts and ends of days
             All these datetimes denote the start of the 8th of March:
@@ -328,6 +331,15 @@ IMPORTANT NOTES
             pdc 8.3 12:00am
             pdc 8.3 12am
             pdc 7.3 24:00
+
+        4) Fractions and precision
+            You may use fractions for timers and alarms, but beware:
+            * Timers remember the time left in miliseconds (0.001s)
+            * Alarms remember a datetime only up to full seconds
+
+            Comparison:
+            "pdc 4.2312h" will evaluate to 4.23279*3600 =~ 15238.044s
+            "pdc +4.2312h" will set an alarm to 15238s from now.
 
 
 Thank you for using polydown!
