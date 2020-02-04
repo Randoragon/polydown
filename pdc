@@ -3,7 +3,7 @@
 import socket
 import sys
 import re
-import datetime
+from datetime import datetime, timedelta, date as dt_date, time as dt_time
 
 PORT = 5000
 
@@ -117,9 +117,143 @@ def time_chunk_to_sec(s):
         return 86400 * float(s[:-1])
     raise ValueError(f'\'{s}\' is not a time chunk!')
 
-def extract_date(s):
-    '''Converts dd.mm.yyyy or mm/dd/yyyy into a (d, m, y) tuple'''
+def extract_datetime(s):
+    '''Converts a datetime string into a datetime object'''
+    now = datetime.now()
+    args = s.upper().split()
+
+    if len(args) == 1:
+        # This is a good way to check if a single parameter is time,
+        # because standalone time always has one of these substrings.
+        # Careful though! If time is preceded by date, it's possible
+        # to omit the colon for 24-hour time strings (e.g. "pdc 3/2 15").
+        if ':' in args[0] or 'PM' in args[0] or 'AM' in args[0]:
+            time = args[0]
+            date = None
+        else:
+            time = None
+            date = args[0]
+    elif len(args) == 2:
+        date, time = args
+    else:
+        print('Too many arguments. See "pdc --help" for reference.')
+        return None
+
+    day,  month,  year   = (None,) * 3
+    hour, minute, second = (None,) * 3
+    pm_am = None
+
+    if date is not None:
+
+        # Extract date
+        match = re.match(r'^(?P<day>\d+)\.(?P<month>\d+)(\.(?P<year>\d+))?$', date)
+        if match is None:
+            match = re.match(r'^(?P<month>\d+)/(?P<day>\d+)(/(?P<year>\d+))?$', date)
+            if match is None:
+                match = re.match(r'^(?P<year>\d+)-(?P<month>\d+)(-(?P<day>\d+))?$', date)
+                if match is None:
+                    print('Unrecognized date format. Available: "dd.mm.yyyy", "mm/dd/yyyy", "yyyy-mm-dd"')
+                    return None
+        # Notice that in the first two formats year can be omitted,
+        # while in the third format the day can be omitted.
+        # If a day is omitted, we simply assume it to be 1.
+        # If a year is omitted however, we have to pick the lowest possible
+        # year for the rest of the datetime to make sense,
+        # i.e. if it is currently August and the user request a date
+        # in November, the year is assumed to be the current one,
+        # but if the requested a date in March, the year would have to be
+        # the subsequent one. The check will be performed later.
+
+        # Store matches
+        day   = match.group('day'  )
+        month = match.group('month')
+        year  = match.group('year' ) 
+ 
+        # Convert known values
+        day   = int(day if day is not None else 1)
+        month = int(month)
+        year  = int(year) if year is not None else None
+
+    # If date is omitted completely and there's only time,
+    # then depending on the current time the date will either be
+    # today or tomorrow. This check is also performed later.
     
+    if time is not None:
+        # Extract time
+        # Some match strings contain unmatchable groups, e.g. '...$(?P<unmatchable>_)?'
+        # This is a hacky way to enforce that these named groups always exist in the match object,
+        # to avoid ugly checks later on. Basically, everything that doesn't exist always has None value.
+        match = re.match(r'^(?P<hour>\d+):(?P<minute>\d+)(:(?P<second>\d+))?$(?P<pm_am>_)?', time)
+        if match is None:
+            match = re.match(r'^(?P<hour>\d+)(:(?P<minute>\d+)(:(?P<second>\d+))?)?(?P<pm_am>PM|AM)', time)
+            if match is None and date is not None:
+                match = re.match(r'^(?P<hour>\d+)$(?P<minute>_)?(?P<second>_)?(?P<pm_am>_)?', time)
+                if match is None:
+                    print('Unrecognized time format. See "pdc --help" for valid examples.')
+                    return None
+
+        # Store matches
+        hour   = match.group('hour'  )
+        minute = match.group('minute')
+        second = match.group('second')
+        pm_am  = match.group('pm_am' )
+
+    # Convert to int and if any time values were omitted, assume 0
+    hour   = int(hour   if hour   is not None else 0)
+    minute = int(minute if minute is not None else 0)
+    second = int(second if second is not None else 0)
+
+    # Verify time validity
+    try:
+        dt = dt_time(hour, minute, second)
+    except Exception as e:
+        print(f'{type(e).__name__}: {e}')
+        return None
+
+    # Convert 12-hour time to 24-hour time
+    if pm_am is not None:
+        if hour == 12 and pm_am == 'AM':
+            hour = 0
+        elif hour != 12 and pm_am == 'PM':
+            hour += 12
+    
+    # If date was omitted, find the closest suitable one
+    if date is None:
+        d = datetime(now.year, now.month, now.day, hour, minute, second)
+        if d < now:
+            d += timedelta(1)
+        day   = d.day
+        month = d.month
+        year  = d.year
+
+    # If year was omitted, find the closest suitable one
+    elif year is None:
+        # Verify month and day validity
+        # Use 2016 as year, because it was a leap year (Feb 29 is a valid date)
+        try:
+            dt = dt_date(2016, month, day)
+        except Exception as e:
+            print(f'{type(e).__name__}: {e}')
+            return None
+
+        # Increment year till the date is valid and in the future
+        year = now.year
+        dt = datetime(year, month, day, hour, minute, second)
+        while dt < now:
+            year += 1
+            try:
+                dt = datetime(year, month, day, hour, minute, second)
+            except ValueError:
+                continue
+
+    # Verify full timedate validity
+    try:
+        dt = datetime(year, month, day, hour, minute, second)
+    except Exception as e:
+        print(f'{type(e).__name__}: {e}')
+        return None
+    
+    return dt
 
 if __name__ == '__main__':
     if len(sys.argv) == 1:
@@ -253,8 +387,8 @@ TIME OBJECTS SYNTAX
             You may omit many parameters as long as it's unambiguous.
             If no pm/am specification, 24-hour time is inferred.
 
-         2) pdc a [CHUNK]... [-- COMMAND]
-            Same principle as with timers, but note the "a" letter.
+         2) pdc +[CHUNK]... [-- COMMAND]
+            Same principle as with timers, but note the "+" prefix.
             Think of it as "set an alarm THIS far into the future".
             Unlike a timer, the time will be rounded to full seconds.
 
@@ -263,13 +397,13 @@ TIME OBJECTS SYNTAX
             if the specified time goes by while the server is down.
 
         Examples:
-            pdc 5pm                  - set to 5pm, current day
+            pdc 5pm                  - set to the closest 5pm
             pdc 17:00                - same as above
             pdc 25.06 13:15          - set to Jun 25th, 13:15
             pdc 12/23/2055 7:30:15am - set to Dec 23rd 2055, 7:30:15am
             pdc 1.2                  - set to the closest Feb 1st
             pdc 5/3 8                - set to 8am on May 3rd 
-            pdc a 15m                - set to 15 minutes from now
+            pdc +12m 180s            - set to 15 minutes from now
 
 ------- STOPWATCH - measures time like a stopwatch (in miliseconds)
 
@@ -327,10 +461,9 @@ IMPORTANT NOTES
             All these datetimes denote the start of the 8th of March:
             pdc 8.3
             pdc 8.3 00:00
-            pdc 8.3 0:0
+            pdc 8.3 0
             pdc 8.3 12:00am
             pdc 8.3 12am
-            pdc 7.3 24:00
 
         4) Fractions and precision
             You may use fractions for timers and alarms, but beware:
